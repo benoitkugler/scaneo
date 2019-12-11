@@ -341,6 +341,14 @@ func parseStar(fieldType *ast.StarExpr) string {
 	return fmt.Sprintf("*%s", starType)
 }
 
+func randGenerator(type_ string) string {
+	if type_ == "int64" {
+		return "rand.Int63()"
+	}
+	l := strings.Split(type_, ".")
+	return "rand" + l[len(l)-1] + "()"
+}
+
 func genFile(outFile, pkg string, unexport bool, toks []structToken) error {
 	if len(toks) < 1 {
 		return errors.New("no structs found")
@@ -351,6 +359,13 @@ func genFile(outFile, pkg string, unexport bool, toks []structToken) error {
 		return err
 	}
 	defer fout.Close()
+
+	outFileTest := strings.TrimSuffix(outFile, ".go") + "_test.go"
+	foutTest, err := os.Create(outFileTest)
+	if err != nil {
+		return err
+	}
+	defer foutTest.Close()
 
 	data := struct {
 		PackageName string
@@ -367,13 +382,36 @@ func genFile(outFile, pkg string, unexport bool, toks []structToken) error {
 		data.Visibility = "s"
 	}
 
-	fnMap := template.FuncMap{"title": strings.Title}
+	fnMap := template.FuncMap{
+		"title": strings.Title,
+		"snake": toSnakeCase,
+		"inc":   func(i int) int { return i + 1 },
+		"noid": func(a []fieldToken) []fieldToken {
+			var out []fieldToken
+			for _, t := range a {
+				if t.Name != "Id" {
+					out = append(out, t)
+				}
+			}
+			return out
+		},
+		"rand": randGenerator,
+	}
 	scansTmpl, err := template.New("scans").Funcs(fnMap).Parse(scansText)
 	if err != nil {
 		return err
 	}
 
 	if err := scansTmpl.Execute(fout, data); err != nil {
+		return err
+	}
+
+	scansTmpl, err = template.New("scansTest").Funcs(fnMap).Parse(scansTextTest)
+	if err != nil {
+		return err
+	}
+
+	if err := scansTmpl.Execute(foutTest, data); err != nil {
 		return err
 	}
 
