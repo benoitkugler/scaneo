@@ -343,7 +343,7 @@ func parseStar(fieldType *ast.StarExpr) string {
 
 func randGenerator(type_ string) string {
 	if type_ == "int64" {
-		return "rand.Int63()"
+		return "rand.Int63n(1<<20)"
 	}
 	l := strings.Split(type_, ".")
 	return "rand" + l[len(l)-1] + "()"
