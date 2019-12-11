@@ -396,6 +396,14 @@ func genFile(outFile, pkg string, unexport bool, toks []structToken) error {
 			return out
 		},
 		"rand": randGenerator,
+		"hasid": func(a []fieldToken) bool {
+			for _, t := range a {
+				if t.Name == "Id" {
+					return true
+				}
+			}
+			return false
+		},
 	}
 	scansTmpl, err := template.New("scans").Funcs(fnMap).Parse(scansText)
 	if err != nil {

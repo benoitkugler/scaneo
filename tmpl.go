@@ -17,6 +17,35 @@ import "database/sql"
 	return s, nil
 }
 
+type {{.Name}}s map[int64]{{.Name}}
+
+func (m {{.Name}}s) Ids() pq.Int64Array {
+	out := make(pq.Int64Array, 0, len(m))
+	for i := range m {
+		out = append(out, i)
+	}
+	return out
+}
+
+{{ if hasid .Fields }}
+func {{$.Visibility}}can{{title .Name}}s(rs *sql.Rows) ({{.Name}}s, error) {
+	structs := make({{.Name}}s,  16)
+	var err error
+	for rs.Next() {
+		var s {{.Name}}
+		if err = rs.Scan({{range .Fields}}
+			&s.{{.Name}},{{end}}
+		); err != nil {
+			return nil, err
+		}
+		structs[s.Id] = s
+	}
+	if err = rs.Err(); err != nil {
+		return nil, err
+	}
+	return structs, nil
+}
+{{ else }}
 func {{$.Visibility}}can{{title .Name}}s(rs *sql.Rows) ([]{{.Name}}, error) {
 	structs := make([]{{.Name}}, 0, 16)
 	var err error
@@ -34,6 +63,7 @@ func {{$.Visibility}}can{{title .Name}}s(rs *sql.Rows) ([]{{.Name}}, error) {
 	}
 	return structs, nil
 }
+{{ end }}
 
 // Insert {{title .Name}} in the database and returns the item with id filled.
 func (item {{title .Name}}) Insert(tx *sql.Tx) (out {{.Name}}, err error) {
@@ -47,6 +77,7 @@ func (item {{title .Name}}) Insert(tx *sql.Tx) (out {{.Name}}, err error) {
 	return {{$.Visibility}}can{{title .Name}}(r)
 }
 
+{{ if hasid .Fields }}
 // Update {{title .Name}} in the database and returns the new version.
 func (item {{title .Name}}) Update(tx *sql.Tx) (out {{.Name}}, err error) {
 	r := tx.QueryRow(` + "`" + `UPDATE {{snake .Name}}s SET (
@@ -67,6 +98,7 @@ func (item {{title .Name}}) Delete(tx *sql.Tx) (int64, error) {
 	err := r.Scan(&deleted_id)
 	return deleted_id, err
 }
+{{ end }}
 
 {{end}}
 {{end}}`
@@ -89,10 +121,12 @@ func rand{{title .Name}}() {{.Name}} {
 
 func queries{{.Name}}(tx *sql.Tx, item {{.Name}}) ({{.Name}}, error) {
 	item, err := item.Insert(tx)
+	{{ if hasid .Fields }}
 	if err != nil {
 		return item, err
 	}
 	return item.Update(tx)
+	{{ else }} return item, err {{ end }}
 }
 
 {{end}}
