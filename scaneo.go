@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -404,6 +405,15 @@ func genFile(outFile, pkg string, unexport bool, toks []structToken) error {
 			}
 			return false
 		},
+		"foreign": func(a []fieldToken) []fieldToken {
+			var out []fieldToken
+			for _, t := range a {
+				if strings.HasPrefix(t.Name, "Id") && t.Name != "Id" {
+					out = append(out, t)
+				}
+			}
+			return out
+		},
 	}
 	scansTmpl, err := template.New("scans").Funcs(fnMap).Parse(scansText)
 	if err != nil {
@@ -423,5 +433,13 @@ func genFile(outFile, pkg string, unexport bool, toks []structToken) error {
 		return err
 	}
 
+	cmd := exec.Command("goimports", "-w", outFile)
+	if err = cmd.Run(); err != nil {
+		return err
+	}
+	cmd = exec.Command("goimports", "-w", outFileTest)
+	if err = cmd.Run(); err != nil {
+		return err
+	}
 	return nil
 }

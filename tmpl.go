@@ -65,6 +65,7 @@ func {{$.Visibility}}can{{title .Name}}s(rs *sql.Rows) ([]{{.Name}}, error) {
 }
 {{ end }}
 
+{{ if hasid .Fields }}
 // Insert {{title .Name}} in the database and returns the item with id filled.
 func (item {{title .Name}}) Insert(tx *sql.Tx) (out {{.Name}}, err error) {
 	r := tx.QueryRow(` + "`" + `INSERT INTO {{snake .Name}}s (
@@ -76,6 +77,18 @@ func (item {{title .Name}}) Insert(tx *sql.Tx) (out {{.Name}}, err error) {
 		` + "`" + `{{range noid .Fields}},item.{{.Name}}{{end}})
 	return {{$.Visibility}}can{{title .Name}}(r)
 }
+{{ else }}
+// Insert the link {{title .Name}} in the database.
+func (item {{title .Name}}) Insert(tx *sql.Tx)  error {
+	_, err := tx.Exec(` + "`" + `INSERT INTO {{snake .Name}}s (
+		{{range $i, $e := noid .Fields}}{{if $i}},{{end}}{{snake $e.Name}}{{end}}
+		) VALUES (
+		{{range $i, $e := noid .Fields}}{{if $i}},{{end}}${{inc $i}}{{end}}
+		);
+		` + "`" + `{{range noid .Fields}},item.{{.Name}}{{end}})
+	return err
+}
+{{ end }}
 
 {{ if hasid .Fields }}
 // Update {{title .Name}} in the database and returns the new version.
@@ -89,7 +102,9 @@ func (item {{title .Name}}) Update(tx *sql.Tx) (out {{.Name}}, err error) {
 		` + "`" + `{{range .Fields}},item.{{.Name}}{{end}})
 	return {{$.Visibility}}can{{title .Name}}(r)
 }
+{{ end }}
 
+{{ if hasid .Fields }}
 // Delete {{title .Name}} in the database and the return the id.
 // Only the field 'Id' is used.
 func (item {{title .Name}}) Delete(tx *sql.Tx) (int64, error) {
@@ -97,6 +112,15 @@ func (item {{title .Name}}) Delete(tx *sql.Tx) (int64, error) {
 	r := tx.QueryRow("DELETE FROM {{snake .Name}}s WHERE id = $1 RETURNING id;", item.Id)
 	err := r.Scan(&deleted_id)
 	return deleted_id, err
+}
+{{ else }}
+// Delete the link {{title .Name}} in the database.
+// Only the {{range foreign .Fields}}'{{.Name}}' {{end}}fields are used.
+func (item {{title .Name}}) Delete(tx *sql.Tx) error {
+	_, err := tx.Exec(` + "`" + `DELETE FROM {{snake .Name}}s WHERE 
+	{{range $i, $e := foreign .Fields}}{{if $i}} AND {{end}}{{snake $e.Name }} = ${{inc $i}}{{end}};` +
+		"`" + ` {{range foreign .Fields}},item.{{.Name}}{{end}})
+	return err
 }
 {{ end }}
 
@@ -120,13 +144,32 @@ func rand{{title .Name}}() {{.Name}} {
 }
 
 func queries{{.Name}}(tx *sql.Tx, item {{.Name}}) ({{.Name}}, error) {
-	item, err := item.Insert(tx)
-	{{ if hasid .Fields }}
+	{{ if hasid .Fields}}item, {{end}}err := item.Insert(tx)
 	if err != nil {
 		return item, err
 	}
-	return item.Update(tx)
-	{{ else }} return item, err {{ end }}
+	rows, err := tx.Query("SELECT * FROM {{snake .Name}}s")
+	if err != nil {
+		return item, err
+	}
+	_, err = {{$.Visibility}}can{{title .Name}}s(rows)
+	if err != nil {
+		return item, err
+	}
+	{{ if hasid .Fields }}
+	item, err = item.Update(tx)
+	if err != nil {
+		return item, err
+	}
+	row := tx.QueryRow("SELECT * FROM {{snake .Name}}s WHERE id = $1", item.Id)
+	{{ else }} 
+	row := tx.QueryRow(` + "`" + `SELECT * FROM {{snake .Name}}s WHERE 
+		{{range $i, $e := foreign .Fields}}{{if $i}} AND {{end}}{{snake $e.Name }} = ${{inc $i}}{{end}};` + "`" +
+		`{{range foreign .Fields}},item.{{.Name}}{{end}})
+	{{ end }}
+
+	_, err = {{$.Visibility}}can{{title .Name}}(row)
+	return item, err
 }
 
 {{end}}
