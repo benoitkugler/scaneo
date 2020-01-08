@@ -17,6 +17,7 @@ import "database/sql"
 	return s, nil
 }
 
+{{ if hasid .Fields }}
 type {{.Name}}s map[int64]{{.Name}}
 
 func (m {{.Name}}s) Ids() pq.Int64Array {
@@ -26,6 +27,7 @@ func (m {{.Name}}s) Ids() pq.Int64Array {
 	}
 	return out
 }
+{{ end }}
 
 {{ if hasid .Fields }}
 func {{$.Visibility}}can{{title .Name}}s(rs *sql.Rows) ({{.Name}}s, error) {
@@ -78,16 +80,32 @@ func (item {{title .Name}}) Insert(tx *sql.Tx) (out {{.Name}}, err error) {
 	return {{$.Visibility}}can{{title .Name}}(r)
 }
 {{ else }}
-// Insert the link {{title .Name}} in the database.
-func (item {{title .Name}}) Insert(tx *sql.Tx)  error {
-	_, err := tx.Exec(` + "`" + `INSERT INTO {{snake .Name}}s (
-		{{range $i, $e := noid .Fields}}{{if $i}},{{end}}{{snake $e.Name}}{{end}}
-		) VALUES (
-		{{range $i, $e := noid .Fields}}{{if $i}},{{end}}${{inc $i}}{{end}}
-		);
-		` + "`" + `{{range noid .Fields}},item.{{.Name}}{{end}})
-	return err
+// Insert the links {{title .Name}} in the database.
+func InsertMany{{title .Name}}s(tx *sql.Tx, items []{{title .Name}}) error {
+	stmt, err := tx.Prepare(pq.CopyIn("{{snake .Name}}s", 
+		{{range noid .Fields}}"{{snake .Name}}",{{end}}
+	))
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		_, err = stmt.Exec({{range $i, $e := noid .Fields}}{{if $i}},{{end}}item.{{.Name}}{{end}})
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, err = stmt.Exec(); err != nil {
+		return err
+	}
+	
+	if err = stmt.Close(); err != nil {
+		return err
+	}
+	return nil
 }
+
 {{ end }}
 
 {{ if hasid .Fields }}
@@ -144,7 +162,8 @@ func rand{{title .Name}}() {{.Name}} {
 }
 
 func queries{{.Name}}(tx *sql.Tx, item {{.Name}}) ({{.Name}}, error) {
-	{{ if hasid .Fields}}item, {{end}}err := item.Insert(tx)
+	{{ if hasid .Fields}} item, err := item.Insert(tx)
+	{{ else }} err := InsertMany{{ .Name }}s(tx, []{{ .Name}}{item}) {{end}}
 	if err != nil {
 		return item, err
 	}
@@ -152,10 +171,18 @@ func queries{{.Name}}(tx *sql.Tx, item {{.Name}}) ({{.Name}}, error) {
 	if err != nil {
 		return item, err
 	}
-	_, err = {{$.Visibility}}can{{title .Name}}s(rows)
+	items, err := {{$.Visibility}}can{{title .Name}}s(rows)
 	if err != nil {
 		return item, err
 	}
+	{{ if hasid .Fields }}
+		_ = items.Ids()
+	{{ else }}
+		_ = len(items)
+	{{ end }}
+
+
+
 	{{ if hasid .Fields }}
 	item, err = item.Update(tx)
 	if err != nil {
